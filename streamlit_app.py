@@ -1,151 +1,126 @@
-import streamlit as st
+import numpy as np
 import pandas as pd
-import math
-from pathlib import Path
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import classification_report, roc_auc_score
+import pickle
+import streamlit as st
+import io
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+# Load and preprocess data
+def load_and_preprocess_data(uploaded_file):
+    df = pd.read_csv(uploaded_file)
+    df['date'] = pd.to_datetime(df['date'])
+    df['Year'] = df['date'].dt.year
+    df['Month'] = df['date'].dt.month
+    df['Day'] = df['date'].dt.day
+    df['Day_of_Week'] = df['date'].dt.dayofweek
+    df.drop('date', axis=1, inplace=True)
+    
+    data_new2 = df[['Year', 'Month', 'open', 'high', 'low', 'close']]
+    data_new2["tomorrow"] = data_new2["close"].shift(-1)
+    data_new2["target"] = data_new2["tomorrow"] > data_new2["close"].astype(float)
+    
+    return df, data_new2
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# Plot data
+def plot_data(df):
+    st.subheader('Closing Prices Over Time')
+    st.line_chart(df['close'])
+    
+    st.subheader('Distribution of Closing Prices')
+    fig, ax = plt.subplots()
+    sns.histplot(df['close'], bins=50, kde=True, ax=ax)
+    st.pyplot(fig)
+    
+    st.subheader('Box Plot of Closing Prices')
+    fig, ax = plt.subplots()
+    sns.boxplot(x=df['close'], ax=ax)
+    st.pyplot(fig)
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+# Plot correlation heatmap
+def plot_correlation_heatmap(data):
+    correlation_matrix = data.corr()
+    st.subheader('Correlation Heatmap')
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', linewidths=0.5, ax=ax)
+    st.pyplot(fig)
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+# Train model and evaluate
+def train_model(X, y):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=1)
+    model = RandomForestClassifier(random_state=1)
+    
+    param_grid = {
+        'n_estimators': [100, 200, 300],
+        'max_depth': [None, 10, 20, 30],
+        'min_samples_split': [2, 5, 10]
+    }
+    grid_search = GridSearchCV(model, param_grid, cv=5, scoring='accuracy')
+    grid_search.fit(X_train, y_train)
+    
+    best_model = grid_search.best_estimator_
+    y_pred = best_model.predict(X_test)
+    
+    accuracy = (y_pred == y_test).mean()
+    st.write(f"Accuracy: {accuracy:.2f}")
+    st.write("Classification Report:")
+    st.text(classification_report(y_test, y_pred))
+    roc_auc = roc_auc_score(y_test, best_model.predict_proba(X_test)[:, 1])
+    st.write(f"ROC AUC Score: {roc_auc:.2f}")
+    
+    return best_model
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+# Make predictions
+def make_predictions(model, new_data):
+    predictions = model.predict(new_data)
+    return predictions
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+# Streamlit app
+def main():
+    st.title('Stock Price Prediction App')
+    
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    
+    if uploaded_file is not None:
+        df, data_new2 = load_and_preprocess_data(uploaded_file)
+        
+        st.write("Data Preview:")
+        st.write(df.head())
+        
+        plot_data(df)
+        plot_correlation_heatmap(data_new2)
+        
+        X = data_new2[['Year', 'Month', 'open', 'high', 'low', 'close']]
+        y = data_new2["target"]
+        
+        best_model = train_model(X, y)
+        
+        st.subheader('Save Model')
+        if st.button('Save Model'):
+            with open('best_model.pkl', 'wb') as f:
+                pickle.dump(best_model, f)
+            st.write("Model saved successfully!")
+        
+        st.subheader('Make Predictions')
+        st.write("Upload new data for prediction:")
+        new_data_file = st.file_uploader("Choose a CSV file", type="csv", key="new_data")
+        
+        if new_data_file is not None:
+            new_data = pd.read_csv(new_data_file)
+            new_data['date'] = pd.to_datetime(new_data['date'])
+            new_data['Year'] = new_data['date'].dt.year
+            new_data['Month'] = new_data['date'].dt.month
+            new_data['Day'] = new_data['date'].dt.day
+            new_data['Day_of_Week'] = new_data['date'].dt.dayofweek
+            new_data.drop('date', axis=1, inplace=True)
+            
+            new_data = new_data[['Year', 'Month', 'open', 'high', 'low', 'close']]
+            predictions = make_predictions(best_model, new_data)
+            st.write("Predictions:")
+            st.write(predictions)
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[gdp_df['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[gdp_df['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+if __name__ == "__main__":
+    main()
