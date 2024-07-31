@@ -1,19 +1,19 @@
-# :earth_americas: GDP dashboard template
+# Stock Price Prediction App
 
-A simple Streamlit app showing the GDP of different countries in the world.
+Welcome to the Stock Price Prediction App! This application uses machine learning to predict whether the stock price of a company will increase or decrease the next day based on historical data. The app uses a Random Forest Classifier to make these predictions and allows users to visualize historical stock prices and model performance.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://gdp-dashboard-template.streamlit.app/)
+## Features
 
-### How to run it on your own machine
+- **Upload CSV Data**: Upload historical stock price data in CSV format.
+- **Data Visualization**: View plots of closing prices over time, distribution of closing prices, and box plots.
+- **Correlation Heatmap**: See the correlation heatmap of different features.
+- **Model Training**: Train a Random Forest model and evaluate its performance.
+- **Make Predictions**: Upload new data to get predictions on future stock price movements.
+- **Save Model**: Save the trained model for future use.
 
-1. Install the requirements
+## Installation
 
-   ```
-   $ pip install -r requirements.txt
-   ```
-
-2. Run the app
-
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/yourusername/stock-price-prediction-app.git
+   cd stock-price-prediction-app
